@@ -21,6 +21,7 @@ NUM_EQUIPMENT = 50
 NUM_PROCEDURES = 30
 NUM_LABTESTS = 50
 NUM_MEDICATIONS = 100
+NUM_STAFF = 200
 
 # -----------------------------
 # Generate Unique Patients
@@ -62,14 +63,21 @@ df_visits = pd.DataFrame(visit_data)
 
 # -----------------------------
 # Assign Operations to 50% patients
+# Ensure every operation patient has at least 1 visit
 # -----------------------------
-operation_patient_ids = np.random.choice(patient_ids, size=NUM_OPERATIONS_PATIENTS, replace=False)
+patients_with_visits = df_visits['PatientID'].unique()
+operation_patient_ids = np.random.choice(patients_with_visits, size=NUM_OPERATIONS_PATIENTS, replace=False)
+
 operation_data = []
 operation_ids = [f'Operation_{i:06d}' for i in range(1, NUM_OPERATIONS_PATIENTS+1)]
 
 for op_id, pid in zip(operation_ids, operation_patient_ids):
     visit_dates = df_visits[df_visits['PatientID'] == pid]['VisitDate'].sort_values().tolist()
-    visit_date = visit_dates[-1]  # latest visit date for operation
+    if visit_dates:
+        visit_date = visit_dates[-1]  # latest visit date
+    else:
+        visit_date = fake.date_between(start_date='-2y', end_date='today')
+    
     operation_date = visit_date + pd.Timedelta(days=random.randint(1,30))
     discharge_date = operation_date + pd.Timedelta(days=random.randint(1,10))
     
@@ -155,6 +163,83 @@ for idx, row in df_operations.iterrows():
 df_billing = pd.DataFrame(billing_data)
 
 # -----------------------------
+# Generate Appointments (Fact_Appointments)
+# -----------------------------
+appointment_data = []
+for pid in patient_ids:
+    num_appt = random.randint(0,3)
+    for _ in range(num_appt):
+        appointment_data.append({
+            'AppointmentID': f'Appt_{random.randint(1, NUM_VISITS*2):06d}',
+            'PatientID': pid,
+            'DoctorID': f'Doctor_{random.randint(1, NUM_DOCTORS):03d}',
+            'AppointmentDate': fake.date_between(start_date='-2y', end_date='today'),
+            'Status': random.choice(['Scheduled','Completed','Cancelled'])
+        })
+
+df_appointments = pd.DataFrame(appointment_data)
+
+# -----------------------------
+# Generate Staff Shifts (Fact_StaffShifts)
+# -----------------------------
+staff_shift_data = []
+for staff_id in range(1, NUM_STAFF+1):
+    for _ in range(100):  # each staff has multiple shifts
+        staff_shift_data.append({
+            'StaffID': f'Staff_{staff_id:03d}',
+            'ShiftDate': fake.date_between(start_date='-2y', end_date='today'),
+            'DepartmentID': f'Department_{random.randint(1,20):02d}',
+            'Role': random.choice(['Doctor','Nurse','Technician'])
+        })
+
+df_staff_shifts = pd.DataFrame(staff_shift_data)
+
+# -----------------------------
+# Generate Patient Feedback (Fact_PatientFeedback)
+# -----------------------------
+feedback_data = []
+for idx, row in df_visits.iterrows():
+    if random.random() < 0.3:  # 30% visits have feedback
+        feedback_data.append({
+            'PatientID': row['PatientID'],
+            'VisitID': row['VisitID'],
+            'Rating': random.randint(1,5),
+            'Comments': fake.sentence()
+        })
+
+df_feedback = pd.DataFrame(feedback_data)
+
+# -----------------------------
+# Generate Procedures (Fact_Procedures)
+# -----------------------------
+procedure_data = []
+for idx, row in df_operations.iterrows():
+    procedure_data.append({
+        'PatientID': row['PatientID'],
+        'OperationID': row['OperationID'],
+        'ProcedureID': row['ProcedureID'],
+        'ProcedureDate': row['OperationDate']
+    })
+
+df_procedures = pd.DataFrame(procedure_data)
+
+# -----------------------------
+# Generate Equipment Usage (Fact_EquipmentUsage)
+# -----------------------------
+equipment_usage_data = []
+for idx, row in df_operations.iterrows():
+    num_equipment = random.randint(1,3)
+    for _ in range(num_equipment):
+        equipment_usage_data.append({
+            'PatientID': row['PatientID'],
+            'OperationID': row['OperationID'],
+            'EquipmentID': f'Equipment_{random.randint(1, NUM_EQUIPMENT):03d}',
+            'UsageDate': row['OperationDate']
+        })
+
+df_equipment_usage = pd.DataFrame(equipment_usage_data)
+
+# -----------------------------
 # Save CSVs
 # -----------------------------
 df_patients.to_csv('Dim_Patient.csv', index=False)
@@ -163,5 +248,10 @@ df_operations.to_csv('Fact_Operations.csv', index=False)
 df_labtests.to_csv('Fact_LabTests.csv', index=False)
 df_medications.to_csv('Fact_Medications.csv', index=False)
 df_billing.to_csv('Fact_Billing.csv', index=False)
+df_appointments.to_csv('Fact_Appointments.csv', index=False)
+df_staff_shifts.to_csv('Fact_StaffShifts.csv', index=False)
+df_feedback.to_csv('Fact_PatientFeedback.csv', index=False)
+df_procedures.to_csv('Fact_Procedures.csv', index=False)
+df_equipment_usage.to_csv('Fact_EquipmentUsage.csv', index=False)
 
-print("CSV files generated successfully!")
+print("All 10 fact tables and dimensions generated successfully!")
