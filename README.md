@@ -3,255 +3,167 @@ import numpy as np
 from faker import Faker
 import random
 
-# -----------------------------
-# Initialize Faker and Random Seed
-# -----------------------------
 fake = Faker()
-np.random.seed(42)
-random.seed(42)
 
-# -----------------------------
-# Parameters
-# -----------------------------
-NUM_PATIENTS = 200000
-NUM_VISITS = 500000
-NUM_DOCTORS = 100
-NUM_OPERATIONS_PATIENTS = 100000  # 50% patients
-NUM_EQUIPMENT = 50
-NUM_PROCEDURES = 30
-NUM_LABTESTS = 50
-NUM_MEDICATIONS = 100
-NUM_STAFF = 200
+# Total records and revisit count
+total_records = 700_000
+unique_patients = 675_000
+revisit_patients = 25_000
 
-# -----------------------------
-# Generate Unique Patients
-# -----------------------------
-patient_ids = [f'Patient_{i:06d}' for i in range(1, NUM_PATIENTS+1)]
-patient_data = []
+# Gender distribution
+gender_probs = [0.55, 0.45]  # Male 55%, Female 45%
+
+# Countries, states, cities
+countries = ["India", "USA", "Europe"]
+states_per_country = 8
+cities_per_state = 8
+
+country_state_city = {}
+for country in countries:
+    states = [f"{country}_State_{i}" for i in range(1, states_per_country + 1)]
+    country_state_city[country] = {}
+    for state in states:
+        cities = [f"{state}_City_{j}" for j in range(1, cities_per_state + 1)]
+        country_state_city[country][state] = cities
+
+# Generate unique patient IDs
+patient_ids = np.arange(1, unique_patients + 1)
+
+# Randomly select patients who will revisit
+revisit_ids = np.random.choice(patient_ids, size=revisit_patients, replace=False)
+
+# Initialize lists
+records = []
+
+# Generate unique patient data
+patient_data = {}
+patient_insurance_map = {}
+patient_hospital_map = {}  # First hospital per patient
+patient_doctor_map = {}    # First doctor per patient
+patient_email_map = {}     # Email per patient
 
 for pid in patient_ids:
-    patient_data.append({
-        'PatientID': pid,
-        'PatientName': fake.name(),
-        'Gender': random.choice(['Male', 'Female']),
-        'DOB': fake.date_of_birth(minimum_age=0, maximum_age=90),
-        'City': fake.city(),
-        'State': fake.state(),
-        'Country': fake.country(),
-        'BloodGroup': random.choice(['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'])
-    })
+    # Assign country, state, city randomly
+    country = random.choice(countries)
+    state = random.choice(list(country_state_city[country].keys()))
+    city = random.choice(country_state_city[country][state])
+    
+    gender = np.random.choice(["Male", "Female"], p=gender_probs)
+    
+    fullname = fake.name_male() if gender=="Male" else fake.name_female()
+    
+    # Generate a unique email tied to patient ID
+    email_local = fullname.lower().replace(" ", ".")
+    email = f"{email_local}.{pid}@example.com"
+    patient_email_map[pid] = email
+    
+    patient_data[pid] = {
+        "Patient_Fullname": fullname,
+        "Patient_Gender": gender,
+        "Patient_age": random.randint(1, 90),
+        "patientdob": fake.date_of_birth(minimum_age=1, maximum_age=90),
+        "patientaddress": fake.address().replace("\n", ", "),
+        "patientcity": city,
+        "patientstate": state,
+        "patientcountry": country,
+        "patientpostalcode": fake.zipcode(),
+        "patient_email": email,  # Consistent email per patient
+        "patient_satisfactionscore": random.randint(1, 10),
+        "patient_bloodgroup": random.choice(["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"]),
+        "patient_waittime": random.randint(5, 180)
+    }
+    
+    # Assign consistent insurance, hospital, doctor per patient
+    patient_insurance_map[pid] = random.randint(1, 50)
+    patient_hospital_map[pid] = random.randint(1, 100)
+    patient_doctor_map[pid] = random.randint(1, 200)
 
-df_patients = pd.DataFrame(patient_data)
+# Generate hospital, doctor, department, insurance data
+hospital_data = {i: {
+    "hospital_name": fake.company(),
+    "hospital_provideer_name": fake.company_suffix(),
+    "hospital_type": random.choice(["Government", "Private"]),
+    "bed_capacity": random.randint(50, 500),
+    "hospital_address": fake.address().replace("\n", ", "),
+    "hospitalstate": random.choice([state for country in countries for state in country_state_city[country].keys()]),
+    "hospitalcity": fake.city(),
+    "hospitalcountry": random.choice(countries),
+    "hospitalpostalcode": fake.zipcode()
+} for i in range(1, 101)}
 
-# -----------------------------
-# Generate Visits
-# -----------------------------
-visit_ids = [f'Visit_{i:06d}' for i in range(1, NUM_VISITS+1)]
-visit_patient_ids = np.random.choice(patient_ids, size=NUM_VISITS, replace=True)
+doctor_data = {i: {
+    "DoctorFullName": fake.name(),
+    "doctor_specialization": random.choice(["Cardiology", "Neurology", "Orthopedics", "General", "Pediatrics"]),
+    "doctoryears_experience": random.randint(1, 40),
+    "doctoremail": fake.email(),
+    "doctor_shift_type": random.choice(["Morning", "Evening", "Night"])
+} for i in range(1, 201)}
 
-visit_data = []
-for vid, pid in zip(visit_ids, visit_patient_ids):
-    visit_data.append({
-        'VisitID': vid,
-        'PatientID': pid,
-        'VisitDate': fake.date_between(start_date='-2y', end_date='today'),
-        'DoctorID': f'Doctor_{random.randint(1, NUM_DOCTORS):03d}',
-        'DoctorVisitFee': random.randint(100, 1500)
-    })
+department_data = {i: {
+    "departmentname": fake.bs(),
+    "department_speciality": random.choice(["Surgery", "Diagnostics", "Treatment"]),
+    "Departmentreferral": random.choice([True, False]),
+    "floor_number": random.randint(1, 10)
+} for i in range(1, 51)}
 
-df_visits = pd.DataFrame(visit_data)
+insurance_data = {i: {
+    "insuranceprovidername": fake.company(),
+    "insuranceplan_type": random.choice(["Basic", "Premium", "Gold"]),
+    "coverage_percentage": random.randint(50, 100),
+    "insurance_email": fake.email()
+} for i in range(1, 51)}
 
-# -----------------------------
-# Assign Operations to 50% patients
-# Ensure every operation patient has at least 1 visit
-# -----------------------------
-patients_with_visits = df_visits['PatientID'].unique()
-operation_patient_ids = np.random.choice(patients_with_visits, size=NUM_OPERATIONS_PATIENTS, replace=False)
+# Generate visit records
+visit_id = 1
+all_patient_ids = list(patient_ids) + list(revisit_ids)
 
-operation_data = []
-operation_ids = [f'Operation_{i:06d}' for i in range(1, NUM_OPERATIONS_PATIENTS+1)]
-
-for op_id, pid in zip(operation_ids, operation_patient_ids):
-    visit_dates = df_visits[df_visits['PatientID'] == pid]['VisitDate'].sort_values().tolist()
-    if visit_dates:
-        visit_date = visit_dates[-1]  # latest visit date
+for pid in all_patient_ids:
+    # Use the same hospital and doctor if revisit
+    hospital_id = patient_hospital_map[pid]
+    doctor_id = patient_doctor_map[pid]
+    department_id = random.randint(1, 50)
+    insurance_id = patient_insurance_map[pid]
+    
+    # Check if this patient has visited before
+    previous_visits = [r for r in records if r["PatientID"] == pid]
+    if previous_visits:
+        # Revisit: after last discharge date, add 30-180 days
+        last_discharge = previous_visits[-1]["Discharge_Date"]
+        admission_date = last_discharge + pd.to_timedelta(random.randint(30, 180), unit='d')
     else:
-        visit_date = fake.date_between(start_date='-2y', end_date='today')
+        # First visit: random date in past 5 years
+        admission_date = fake.date_between(start_date='-5y', end_date='today')
     
-    operation_date = visit_date + pd.Timedelta(days=random.randint(1,30))
-    discharge_date = operation_date + pd.Timedelta(days=random.randint(1,10))
+    discharge_date = admission_date + pd.to_timedelta(random.randint(1, 15), unit='d')
     
-    operation_data.append({
-        'OperationID': op_id,
-        'PatientID': pid,
-        'OperationDate': operation_date,
-        'DischargeDate': discharge_date,
-        'ProcedureID': f'Procedure_{random.randint(1, NUM_PROCEDURES):03d}',
-        'RoomID': f'Room_{random.randint(1, 50):03d}',
-        'EquipmentID': f'Equipment_{random.randint(1, NUM_EQUIPMENT):03d}'
-    })
+    record = {
+        "VisitID": visit_id,
+        "Admission_Date": admission_date,
+        "Discharge_Date": discharge_date,
+        "PatientID": pid,
+        **patient_data[pid],
+        "DoctorID": doctor_id,
+        **doctor_data[doctor_id],
+        "departmentid": department_id,
+        **department_data[department_id],
+        "hospitalid": hospital_id,
+        **hospital_data[hospital_id],
+        "total_billing_amount": round(random.uniform(500, 50000), 2),
+        "insurancecoveredamount": round(random.uniform(100, 30000), 2),
+        "patient_covered_amount": round(random.uniform(50, 20000), 2),
+        "full_date": discharge_date,
+        "diagnosisid": random.randint(1, 1000),
+        "diagnosiscode": f"D{random.randint(100,999)}",
+        "diagnosisdiscription": fake.sentence(),
+        "diagnosiscategory": random.choice(["Critical", "Moderate", "Mild"]),
+        "insuranceproviderid": insurance_id,
+        **insurance_data[insurance_id]
+    }
+    
+    records.append(record)
+    visit_id += 1
 
-df_operations = pd.DataFrame(operation_data)
-
-# -----------------------------
-# Generate Lab Tests
-# -----------------------------
-lab_data = []
-for pid in operation_patient_ids:
-    num_tests = random.randint(1,5)
-    for _ in range(num_tests):
-        lab_data.append({
-            'PatientID': pid,
-            'LabTestID': f'LabTest_{random.randint(1, NUM_LABTESTS):03d}',
-            'TestDate': fake.date_between(start_date='-2y', end_date='today')
-        })
-
-df_labtests = pd.DataFrame(lab_data)
-
-# -----------------------------
-# Generate Medications
-# -----------------------------
-medication_data = []
-
-# Medications for all visits
-for idx, row in df_visits.iterrows():
-    num_meds = random.randint(0,3)
-    for _ in range(num_meds):
-        medication_data.append({
-            'PatientID': row['PatientID'],
-            'VisitID': row['VisitID'],
-            'MedicationID': f'Med_{random.randint(1, NUM_MEDICATIONS):03d}',
-            'Dosage': f'{random.randint(1,3)} tablets/day'
-        })
-
-# Medications for operations
-for idx, row in df_operations.iterrows():
-    num_meds = random.randint(1,5)
-    for _ in range(num_meds):
-        medication_data.append({
-            'PatientID': row['PatientID'],
-            'OperationID': row['OperationID'],
-            'MedicationID': f'Med_{random.randint(1, NUM_MEDICATIONS):03d}',
-            'Dosage': f'{random.randint(1,3)} tablets/day'
-        })
-
-df_medications = pd.DataFrame(medication_data)
-
-# -----------------------------
-# Generate Billing
-# -----------------------------
-billing_data = []
-
-# Billing for visits
-for idx, row in df_visits.iterrows():
-    billing_data.append({
-        'PatientID': row['PatientID'],
-        'VisitID': row['VisitID'],
-        'Amount': row['DoctorVisitFee'] + random.randint(500,5000),
-        'PaymentStatus': random.choice(['Paid','Pending','Insurance'])
-    })
-
-# Billing for operations
-for idx, row in df_operations.iterrows():
-    billing_data.append({
-        'PatientID': row['PatientID'],
-        'OperationID': row['OperationID'],
-        'Amount': random.randint(5000,50000),
-        'PaymentStatus': random.choice(['Paid','Pending','Insurance'])
-    })
-
-df_billing = pd.DataFrame(billing_data)
-
-# -----------------------------
-# Generate Appointments (Fact_Appointments)
-# -----------------------------
-appointment_data = []
-for pid in patient_ids:
-    num_appt = random.randint(0,3)
-    for _ in range(num_appt):
-        appointment_data.append({
-            'AppointmentID': f'Appt_{random.randint(1, NUM_VISITS*2):06d}',
-            'PatientID': pid,
-            'DoctorID': f'Doctor_{random.randint(1, NUM_DOCTORS):03d}',
-            'AppointmentDate': fake.date_between(start_date='-2y', end_date='today'),
-            'Status': random.choice(['Scheduled','Completed','Cancelled'])
-        })
-
-df_appointments = pd.DataFrame(appointment_data)
-
-# -----------------------------
-# Generate Staff Shifts (Fact_StaffShifts)
-# -----------------------------
-staff_shift_data = []
-for staff_id in range(1, NUM_STAFF+1):
-    for _ in range(100):  # each staff has multiple shifts
-        staff_shift_data.append({
-            'StaffID': f'Staff_{staff_id:03d}',
-            'ShiftDate': fake.date_between(start_date='-2y', end_date='today'),
-            'DepartmentID': f'Department_{random.randint(1,20):02d}',
-            'Role': random.choice(['Doctor','Nurse','Technician'])
-        })
-
-df_staff_shifts = pd.DataFrame(staff_shift_data)
-
-# -----------------------------
-# Generate Patient Feedback (Fact_PatientFeedback)
-# -----------------------------
-feedback_data = []
-for idx, row in df_visits.iterrows():
-    if random.random() < 0.3:  # 30% visits have feedback
-        feedback_data.append({
-            'PatientID': row['PatientID'],
-            'VisitID': row['VisitID'],
-            'Rating': random.randint(1,5),
-            'Comments': fake.sentence()
-        })
-
-df_feedback = pd.DataFrame(feedback_data)
-
-# -----------------------------
-# Generate Procedures (Fact_Procedures)
-# -----------------------------
-procedure_data = []
-for idx, row in df_operations.iterrows():
-    procedure_data.append({
-        'PatientID': row['PatientID'],
-        'OperationID': row['OperationID'],
-        'ProcedureID': row['ProcedureID'],
-        'ProcedureDate': row['OperationDate']
-    })
-
-df_procedures = pd.DataFrame(procedure_data)
-
-# -----------------------------
-# Generate Equipment Usage (Fact_EquipmentUsage)
-# -----------------------------
-equipment_usage_data = []
-for idx, row in df_operations.iterrows():
-    num_equipment = random.randint(1,3)
-    for _ in range(num_equipment):
-        equipment_usage_data.append({
-            'PatientID': row['PatientID'],
-            'OperationID': row['OperationID'],
-            'EquipmentID': f'Equipment_{random.randint(1, NUM_EQUIPMENT):03d}',
-            'UsageDate': row['OperationDate']
-        })
-
-df_equipment_usage = pd.DataFrame(equipment_usage_data)
-
-# -----------------------------
-# Save CSVs
-# -----------------------------
-df_patients.to_csv('Dim_Patient.csv', index=False)
-df_visits.to_csv('Fact_Visits.csv', index=False)
-df_operations.to_csv('Fact_Operations.csv', index=False)
-df_labtests.to_csv('Fact_LabTests.csv', index=False)
-df_medications.to_csv('Fact_Medications.csv', index=False)
-df_billing.to_csv('Fact_Billing.csv', index=False)
-df_appointments.to_csv('Fact_Appointments.csv', index=False)
-df_staff_shifts.to_csv('Fact_StaffShifts.csv', index=False)
-df_feedback.to_csv('Fact_PatientFeedback.csv', index=False)
-df_procedures.to_csv('Fact_Procedures.csv', index=False)
-df_equipment_usage.to_csv('Fact_EquipmentUsage.csv', index=False)
-
-print("All 10 fact tables and dimensions generated successfully!")
+# Create DataFrame and save CSV
+df = pd.DataFrame(records)
+df.to_csv("hospital_visits_700k_email_matched.csv", index=False)
+print("CSV file generated successfully with 7 lakh records and emails matching patient IDs!")
