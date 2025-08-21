@@ -2,163 +2,186 @@ import pandas as pd
 import numpy as np
 from faker import Faker
 import random
-from tqdm import tqdm
 
 fake = Faker()
 
-# -------------------------
-# Parameters
-# -------------------------
-total_records = 700_000
-unique_patients = 675_000
-revisit_patients = 25_000
+# -----------------------
+# PARAMETERS
+# -----------------------
+total_patients = 475000    # unique patients
+revisit_patients = 25000   # patients who revisit
+total_records = 500000     # total visits
 
-# Gender distribution
-gender_probs = [0.55, 0.45]  # Male 55%, Female 45%
-
-# Countries, states, cities
-countries = ["India", "USA", "Europe"]
-states_per_country = 8
-cities_per_state = 8
-
-# Generate country->state->city mapping
-country_state_city = {}
-for country in countries:
-    states = [f"{country}_State_{i}" for i in range(1, states_per_country + 1)]
-    country_state_city[country] = {}
-    for state in states:
-        cities = [f"{state}_City_{j}" for j in range(1, cities_per_state + 1)]
-        country_state_city[country][state] = cities
-
-# -------------------------
-# Generate unique patient data
-# -------------------------
-patient_ids = np.arange(1, unique_patients + 1)
-revisit_ids = np.random.choice(patient_ids, size=revisit_patients, replace=False)
-
-records = []
-patient_data = {}
-patient_hospital_map = {}
-patient_doctor_map = {}
-patient_insurance_map = {}
-
-for pid in tqdm(patient_ids, desc="Generating patients"):
-    country = random.choice(countries)
-    state = random.choice(list(country_state_city[country].keys()))
-    city = random.choice(country_state_city[country][state])
-    
-    gender = np.random.choice(["Male", "Female"], p=gender_probs)
-    fullname = fake.name_male() if gender == "Male" else fake.name_female()
-    email = f"{fullname.lower().replace(' ','.')}.{pid}@example.com"
-    
-    patient_data[pid] = {
-        "Patient_Fullname": fullname,
-        "Patient_Gender": gender,
-        "Patient_age": random.randint(1, 90),
-        "patientdob": fake.date_of_birth(minimum_age=1, maximum_age=90),
-        "patientaddress": fake.address().replace("\n", ", "),
-        "patientcity": city,
-        "patientstate": state,
-        "patientcountry": country,
-        "patientpostalcode": fake.zipcode(),
-        "patient_email": email,
-        "patient_satisfactionscore": random.randint(1, 10),
-        "patient_bloodgroup": random.choice(["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"]),
-        "patient_waittime": random.randint(5, 180)
+# -----------------------
+# GENERATE UNIQUE PATIENTS WITH GENDER BIAS
+# -----------------------
+patients = []
+for i in range(1, total_patients + 1):
+    gender = np.random.choice(['Male', 'Female'], p=[0.55, 0.45])  # Male slightly higher
+    dob = fake.date_of_birth(minimum_age=0, maximum_age=90)
+    patient = {
+        'PatientID': i,
+        'Patient_Fullname': fake.name_male() if gender=='Male' else fake.name_female(),
+        'Patient_Gender': gender,
+        'Patient_age': (pd.Timestamp('today') - pd.Timestamp(dob)).days // 365,
+        'patientdob': dob,
+        'patientaddress': fake.address().replace('\n', ', '),
+        'patientcity': fake.city(),
+        'patientstate': fake.state(),
+        'patientcountry': fake.country(),
+        'patientpostalcode': fake.postcode(),
+        'patient_satisfactionscore': random.randint(1, 10),
+        'patient_bloodgroup': random.choice(['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-']),
+        'patient_waittime': random.randint(5, 180),
+        'patient_email': fake.email()
     }
-    
-    patient_hospital_map[pid] = random.randint(1, 100)
-    patient_doctor_map[pid] = random.randint(1, 200)
-    patient_insurance_map[pid] = random.randint(1, 50)
+    patients.append(patient)
 
-# -------------------------
-# Generate hospital, doctor, department, insurance data
-# -------------------------
-hospital_data = {i: {
-    "hospital_name": fake.company(),
-    "hospital_provider_name": fake.company_suffix(),
-    "hospital_type": random.choice(["Government", "Private"]),
-    "bed_capacity": random.randint(50, 500),
-    "hospital_address": fake.address().replace("\n", ", "),
-    "hospitalstate": random.choice([state for country in countries for state in country_state_city[country].keys()]),
-    "hospitalcity": fake.city(),
-    "hospitalcountry": random.choice(countries),
-    "hospitalpostalcode": fake.zipcode()
-} for i in range(1, 101)}
+patients_df = pd.DataFrame(patients)
 
-doctor_data = {i: {
-    "DoctorFullName": fake.name(),
-    "doctor_specialization": random.choice(["Cardiology", "Neurology", "Orthopedics", "General", "Pediatrics"]),
-    "doctoryears_experience": random.randint(1, 40),
-    "doctoremail": fake.email(),
-    "doctor_shift_type": random.choice(["Morning", "Evening", "Night"])
-} for i in range(1, 201)}
+# -----------------------
+# GENERATE REVISITS
+# -----------------------
+revisit_ids = np.random.choice(patients_df['PatientID'], size=revisit_patients, replace=False)
+revisits_df = patients_df[patients_df['PatientID'].isin(revisit_ids)].copy()
 
-department_data = {i: {
-    "departmentname": fake.bs(),
-    "department_speciality": random.choice(["Surgery", "Diagnostics", "Treatment"]),
-    "Departmentreferral": random.choice([True, False]),
-    "floor_number": random.randint(1, 10)
-} for i in range(1, 51)}
+# -----------------------
+# COMBINE UNIQUE + REVISITS
+# -----------------------
+visits_df = pd.concat([patients_df, revisits_df], ignore_index=True)
 
-insurance_data = {i: {
-    "insuranceprovidername": fake.company(),
-    "insuranceplan_type": random.choice(["Basic", "Premium", "Gold"]),
-    "coverage_percentage": random.randint(50, 100),
-    "insurance_email": fake.email()
-} for i in range(1, 51)}
+# Ensure exact total_records
+if len(visits_df) < total_records:
+    extra_rows = total_records - len(visits_df)
+    extra_patients = patients_df.sample(extra_rows, replace=True)
+    visits_df = pd.concat([visits_df, extra_patients], ignore_index=True)
 
-# -------------------------
-# Generate visit records
-# -------------------------
-visit_id = 1
-all_patient_ids = list(patient_ids) + list(revisit_ids)
+# Shuffle visits
+visits_df = visits_df.sample(frac=1).reset_index(drop=True)
 
-for pid in tqdm(all_patient_ids, desc="Generating visits"):
-    hospital_id = patient_hospital_map[pid]
-    doctor_id = patient_doctor_map[pid]
-    department_id = random.randint(1, 50)
-    insurance_id = patient_insurance_map[pid]
-    
-    previous_visits = [r for r in records if r["PatientID"] == pid]
-    if previous_visits:
-        last_discharge = previous_visits[-1]["Discharge_Date"]
-        admission_date = last_discharge + pd.to_timedelta(random.randint(30, 180), unit='d')
-    else:
-        admission_date = fake.date_between(start_date='-5y', end_date='today')
-    
-    discharge_date = admission_date + pd.to_timedelta(random.randint(1, 15), unit='d')
-    
-    record = {
-        "VisitID": visit_id,
-        "Admission_Date": admission_date,
-        "Discharge_Date": discharge_date,
-        "PatientID": pid,
-        **patient_data[pid],
-        "DoctorID": doctor_id,
-        **doctor_data[doctor_id],
-        "departmentid": department_id,
-        **department_data[department_id],
-        "hospitalid": hospital_id,
-        **hospital_data[hospital_id],
-        "total_billing_amount": round(random.uniform(500, 50000), 2),
-        "insurancecoveredamount": round(random.uniform(100, 30000), 2),
-        "patient_covered_amount": round(random.uniform(50, 20000), 2),
-        "full_date": discharge_date,
-        "diagnosisid": random.randint(1, 1000),
-        "diagnosiscode": f"D{random.randint(100,999)}",
-        "diagnosisdiscription": fake.sentence(),
-        "diagnosiscategory": random.choice(["Critical", "Moderate", "Mild"]),
-        "insuranceproviderid": insurance_id,
-        **insurance_data[insurance_id]
-    }
-    
-    records.append(record)
-    visit_id += 1
+# -----------------------
+# VISITID AND DATES
+# -----------------------
+visits_df['VisitID'] = range(1, len(visits_df)+1)
 
-# -------------------------
-# Create DataFrame and save CSV
-# -------------------------
-df = pd.DataFrame(records)
-df.to_csv("hospital_visits_700k_proper_columns.csv", index=False)
-print("CSV file generated successfully with 7 lakh records and proper column values!")
+# Admission_Date: random date within last 3 years
+visits_df['Admission_Date'] = pd.to_datetime(
+    [fake.date_between(start_date='-3y', end_date='today') for _ in range(len(visits_df))]
+)
+
+# Discharge_Date: Admission_Date + 1-14 days
+visits_df['Discharge_Date'] = visits_df['Admission_Date'] + pd.to_timedelta(
+    np.random.randint(1, 15, size=len(visits_df)), unit='D'
+)
+
+# -----------------------
+# DOCTORS
+# -----------------------
+doctors = []
+for i in range(1, 2001):
+    doctors.append({
+        'DoctorID': i,
+        'DoctorFullName': fake.name(),
+        'doctor_specialization': random.choice(['Cardiology', 'Neurology', 'Orthopedics', 'Pediatrics', 'General']),
+        'doctoryears_experience': random.randint(1, 40),
+        'doctoremail': fake.email(),
+        'doctor_shift_type': random.choice(['Morning', 'Evening', 'Night'])
+    })
+doctors_df = pd.DataFrame(doctors)
+
+# -----------------------
+# DEPARTMENTS
+# -----------------------
+departments = []
+for i in range(1, 101):
+    departments.append({
+        'departmentid': i,
+        'departmentname': fake.word().title() + " Dept",
+        'department_speciality': random.choice(['Surgery', 'Medicine', 'Radiology', 'Cardiology']),
+        'Departmentreferral': random.choice(['Yes', 'No']),
+        'floor_number': random.randint(1, 10)
+    })
+departments_df = pd.DataFrame(departments)
+
+# -----------------------
+# HOSPITALS
+# -----------------------
+hospitals = []
+for i in range(1, 51):
+    hospitals.append({
+        'hospitalid': i,
+        'hospital_name': fake.company() + " Hospital",
+        'hospital_provideer_name': fake.company(),
+        'hospital_type': random.choice(['Private', 'Public']),
+        'bed_capacity': random.randint(50, 500),
+        'hospital_address': fake.address().replace('\n', ', '),
+        'hospitalstate': fake.state(),
+        'hospitalcity': fake.city(),
+        'hospitalcountry': fake.country(),
+        'hospitalpostalcode': fake.postcode()
+    })
+hospitals_df = pd.DataFrame(hospitals)
+
+# -----------------------
+# DIAGNOSIS
+# -----------------------
+diagnosis_categories = ['Bones', 'Fever', 'Skin', 'Cancer', 'Cardiology', 'Neurology', 'Pediatrics', 'Respiratory', 'Diabetes', 'General']
+diagnosis = []
+for i in range(1, 1001):
+    diagnosis.append({
+        'diagnosisid': i,
+        'diagnosiscode': f"D{i:04d}",
+        'diagnosisdiscription': fake.sentence(nb_words=6),
+        'diagnosiscategory': random.choice(diagnosis_categories)
+    })
+diagnosis_df = pd.DataFrame(diagnosis)
+
+# -----------------------
+# INSURANCE
+# -----------------------
+insurance = []
+for i in range(1, 201):
+    insurance.append({
+        'insuranceproviderid': i,
+        'insuranceprovidername': fake.company(),
+        'insuranceplan_type': random.choice(['Basic', 'Premium', 'Gold', 'Platinum']),
+        'coverage_percentage': random.randint(50, 100),
+        'insurance_email': fake.email()
+    })
+insurance_df = pd.DataFrame(insurance)
+
+# -----------------------
+# MERGE DOCTOR, DEPT, HOSPITAL, DIAGNOSIS, INSURANCE
+# -----------------------
+visits_df['DoctorID'] = np.random.choice(doctors_df['DoctorID'], size=len(visits_df))
+visits_df = visits_df.merge(doctors_df, on='DoctorID', how='left')
+
+visits_df['departmentid'] = np.random.choice(departments_df['departmentid'], size=len(visits_df))
+visits_df = visits_df.merge(departments_df, on='departmentid', how='left')
+
+visits_df['hospitalid'] = np.random.choice(hospitals_df['hospitalid'], size=len(visits_df))
+visits_df = visits_df.merge(hospitals_df, on='hospitalid', how='left')
+
+visits_df['diagnosisid'] = np.random.choice(diagnosis_df['diagnosisid'], size=len(visits_df))
+visits_df = visits_df.merge(diagnosis_df, on='diagnosisid', how='left')
+
+visits_df['insuranceproviderid'] = np.random.choice(insurance_df['insuranceproviderid'], size=len(visits_df))
+visits_df = visits_df.merge(insurance_df, on='insuranceproviderid', how='left')
+
+# -----------------------
+# BILLING
+# -----------------------
+visits_df['total_billing_amount'] = np.random.randint(100, 2000, size=len(visits_df))
+visits_df['insurancecoveredamount'] = (visits_df['total_billing_amount'] * visits_df['coverage_percentage'] / 100).astype(int)
+visits_df['patient_covered_amount'] = visits_df['total_billing_amount'] - visits_df['insurancecoveredamount']
+
+# -----------------------
+# FULL DATE COLUMN
+# -----------------------
+visits_df['full_date'] = visits_df['Admission_Date']
+
+# -----------------------
+# SAVE CSV
+# -----------------------
+visits_df.to_csv('healthcare_dataset_5lakh.csv', index=False)
+print("CSV with 5 lakh records including patient emails, gender bias, and proper admission/discharge dates generated successfully!")
