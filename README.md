@@ -9,9 +9,10 @@ fake = Faker()
 # -------------------------
 # Parameters
 # -------------------------
-total_unique_patients = 465_000   # Unique patients
-revisit_patients = int(0.07 * total_unique_patients)  # 7% revisits
-total_records = total_unique_patients + revisit_patients
+total_records = 500_000
+revisit_fraction = 0.005  # 0.5% revisits
+revisit_count = int(total_records * revisit_fraction)  # ~2,500 revisits
+unique_patients = total_records - revisit_count  # Remaining unique patients
 
 # Gender distribution
 gender_probs = [0.55, 0.45]  # Male 55%, Female 45%
@@ -33,8 +34,8 @@ for country in countries:
 # -------------------------
 # Generate unique patient data
 # -------------------------
-patient_ids = np.arange(1, total_unique_patients + 1)
-revisit_ids = np.random.choice(patient_ids, size=revisit_patients, replace=False)
+patient_ids = np.arange(1, unique_patients + 1)
+revisit_ids = np.random.choice(patient_ids, size=revisit_count, replace=False)
 
 records = []
 patient_data = {}
@@ -67,7 +68,6 @@ for pid in tqdm(patient_ids, desc="Generating patients"):
         "patient_waittime": random.randint(5, 180)
     }
     
-    # Assign consistent hospital, doctor, insurance per patient
     patient_hospital_map[pid] = random.randint(1, 50)
     patient_doctor_map[pid] = random.randint(1, 100)
     patient_insurance_map[pid] = random.randint(1, 25)
@@ -113,7 +113,7 @@ insurance_data = {i: {
 # Generate visit records
 # -------------------------
 visit_id = 1
-all_patient_ids = list(patient_ids) + list(revisit_ids)
+all_patient_ids = list(patient_ids) + list(revisit_ids)  # Include revisits
 
 for pid in tqdm(all_patient_ids, desc="Generating visits"):
     hospital_id = patient_hospital_map[pid]
@@ -158,8 +158,8 @@ for pid in tqdm(all_patient_ids, desc="Generating visits"):
     visit_id += 1
 
 # -------------------------
-# Create DataFrame and save CSV
+# Save CSV
 # -------------------------
 df = pd.DataFrame(records)
-df.to_csv("hospital_visits_500k_4countries.csv", index=False)
-print("CSV file generated successfully with 5 lakh records, 7% revisits, and proper emails!")
+df.to_csv("hospital_visits_500k_0_5percent_revisit.csv", index=False)
+print("CSV file generated successfully with 500,000 records and 0.5% revisits!")
