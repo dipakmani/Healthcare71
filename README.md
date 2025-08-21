@@ -1,154 +1,161 @@
 import pandas as pd
 import numpy as np
 from faker import Faker
+import random
 
+# -----------------------------
+# Initialize Faker and Random Seed
+# -----------------------------
 fake = Faker()
 np.random.seed(42)
+random.seed(42)
 
 # -----------------------------
-# 1️⃣ Parameters
+# Parameters
 # -----------------------------
-num_unique_patients = 200000
-num_visits = 500000
-num_doctors = 100
-num_labtests = 50
-num_procedures = 50
-num_equipment = 30
-num_medications = 200
+NUM_PATIENTS = 200000
+NUM_VISITS = 500000
+NUM_DOCTORS = 100
+NUM_OPERATIONS_PATIENTS = 100000  # 50% patients
+NUM_EQUIPMENT = 50
+NUM_PROCEDURES = 30
+NUM_LABTESTS = 50
+NUM_MEDICATIONS = 100
 
 # -----------------------------
-# 2️⃣ Generate Dim_Patient
+# Generate Unique Patients
 # -----------------------------
-patient_ids = [f'Patient_{i:06d}' for i in range(1, num_unique_patients+1)]
+patient_ids = [f'Patient_{i:06d}' for i in range(1, NUM_PATIENTS+1)]
 patient_data = []
 
 for pid in patient_ids:
     patient_data.append({
         'PatientID': pid,
-        'FirstName': fake.first_name(),
-        'LastName': fake.last_name(),
-        'Gender': np.random.choice(['M', 'F']),
+        'PatientName': fake.name(),
+        'Gender': random.choice(['Male', 'Female']),
         'DOB': fake.date_of_birth(minimum_age=0, maximum_age=90),
         'City': fake.city(),
         'State': fake.state(),
-        'Country': 'India',
-        'BloodGroup': np.random.choice(['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'])
+        'Country': fake.country(),
+        'BloodGroup': random.choice(['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'])
     })
 
 df_patients = pd.DataFrame(patient_data)
 
 # -----------------------------
-# 3️⃣ Generate Fact_Visits
+# Generate Visits
 # -----------------------------
-visit_ids = [f'Visit_{i:06d}' for i in range(1, num_visits+1)]
-assigned_patients = np.random.choice(patient_ids, size=num_visits, replace=True)
-doctor_ids = [f'Doctor_{i:03d}' for i in range(1, num_doctors+1)]
-visit_dates = pd.to_datetime(np.random.randint(
-    pd.Timestamp('2020-01-01').value//10**9,
-    pd.Timestamp('2025-01-01').value//10**9,
-    num_visits), unit='s')
-doctor_fees = np.random.randint(100, 1501, size=num_visits)
+visit_ids = [f'Visit_{i:06d}' for i in range(1, NUM_VISITS+1)]
+visit_patient_ids = np.random.choice(patient_ids, size=NUM_VISITS, replace=True)
 
-df_visits = pd.DataFrame({
-    'VisitID': visit_ids,
-    'PatientID': assigned_patients,
-    'DoctorID': np.random.choice(doctor_ids, size=num_visits, replace=True),
-    'VisitDate': visit_dates,
-    'DoctorFee': doctor_fees
-})
-
-# Merge patient attributes
-df_visits = df_visits.merge(df_patients, on='PatientID', how='left')
-
-# -----------------------------
-# 4️⃣ Assign operations to 50% unique patients
-# -----------------------------
-operation_patients = np.random.choice(patient_ids, size=num_unique_patients//2, replace=False)
-df_visits['OperationFlag'] = df_visits['PatientID'].apply(lambda x: 1 if x in operation_patients else 0)
-
-# -----------------------------
-# 5️⃣ Generate Fact_Operations
-# -----------------------------
-operations_data = []
-operation_ids = []
-for pid in operation_patients:
-    # Get all visits for patient
-    patient_visits = df_visits[df_visits['PatientID'] == pid]
-    # Choose one visit for operation
-    visit_row = patient_visits.sample(1).iloc[0]
-    op_date = visit_row['VisitDate'] + pd.to_timedelta(np.random.randint(1,15), unit='d')
-    discharge_date = op_date + pd.to_timedelta(np.random.randint(1,10), unit='d')
-    procedure_id = f'Procedure_{np.random.randint(1, num_procedures+1):03d}'
-    equipment_used = [f'Equipment_{np.random.randint(1, num_equipment+1):02d}' for _ in range(np.random.randint(1,4))]
-    operation_id = f'Operation_{pid}'
-    operation_ids.append(operation_id)
-    
-    operations_data.append({
-        'OperationID': operation_id,
+visit_data = []
+for vid, pid in zip(visit_ids, visit_patient_ids):
+    visit_data.append({
+        'VisitID': vid,
         'PatientID': pid,
-        'VisitID': visit_row['VisitID'],
-        'OperationDate': op_date,
-        'DischargeDate': discharge_date,
-        'ProcedureID': procedure_id,
-        'EquipmentUsed': ','.join(equipment_used)
+        'VisitDate': fake.date_between(start_date='-2y', end_date='today'),
+        'DoctorID': f'Doctor_{random.randint(1, NUM_DOCTORS):03d}',
+        'DoctorVisitFee': random.randint(100, 1500)
     })
 
-df_operations = pd.DataFrame(operations_data)
+df_visits = pd.DataFrame(visit_data)
 
 # -----------------------------
-# 6️⃣ Generate Fact_LabTests for operations
+# Assign Operations to 50% patients
 # -----------------------------
-labtests_data = []
-labtest_ids = [f'LabTest_{i:03d}' for i in range(1, num_labtests+1)]
-for idx, row in df_operations.iterrows():
-    num_tests = np.random.randint(1,6)
-    tests = np.random.choice(labtest_ids, size=num_tests, replace=False)
-    for test in tests:
-        labtests_data.append({
-            'PatientID': row['PatientID'],
-            'OperationID': row['OperationID'],
-            'LabTestID': test,
-            'Result': np.random.choice(['Normal', 'High', 'Low'])
+operation_patient_ids = np.random.choice(patient_ids, size=NUM_OPERATIONS_PATIENTS, replace=False)
+operation_data = []
+operation_ids = [f'Operation_{i:06d}' for i in range(1, NUM_OPERATIONS_PATIENTS+1)]
+
+for op_id, pid in zip(operation_ids, operation_patient_ids):
+    visit_dates = df_visits[df_visits['PatientID'] == pid]['VisitDate'].sort_values().tolist()
+    visit_date = visit_dates[-1]  # latest visit date for operation
+    operation_date = visit_date + pd.Timedelta(days=random.randint(1,30))
+    discharge_date = operation_date + pd.Timedelta(days=random.randint(1,10))
+    
+    operation_data.append({
+        'OperationID': op_id,
+        'PatientID': pid,
+        'OperationDate': operation_date,
+        'DischargeDate': discharge_date,
+        'ProcedureID': f'Procedure_{random.randint(1, NUM_PROCEDURES):03d}',
+        'RoomID': f'Room_{random.randint(1, 50):03d}',
+        'EquipmentID': f'Equipment_{random.randint(1, NUM_EQUIPMENT):03d}'
+    })
+
+df_operations = pd.DataFrame(operation_data)
+
+# -----------------------------
+# Generate Lab Tests
+# -----------------------------
+lab_data = []
+for pid in operation_patient_ids:
+    num_tests = random.randint(1,5)
+    for _ in range(num_tests):
+        lab_data.append({
+            'PatientID': pid,
+            'LabTestID': f'LabTest_{random.randint(1, NUM_LABTESTS):03d}',
+            'TestDate': fake.date_between(start_date='-2y', end_date='today')
         })
-df_labtests = pd.DataFrame(labtests_data)
+
+df_labtests = pd.DataFrame(lab_data)
 
 # -----------------------------
-# 7️⃣ Generate Fact_Medications
+# Generate Medications
 # -----------------------------
-medication_ids = [f'Medication_{i:03d}' for i in range(1, num_medications+1)]
-medications_data = []
+medication_data = []
+
+# Medications for all visits
 for idx, row in df_visits.iterrows():
-    num_meds = np.random.randint(0,6)  # Some visits may have 0 meds
-    meds = np.random.choice(medication_ids, size=num_meds, replace=False)
-    for med in meds:
-        medications_data.append({
+    num_meds = random.randint(0,3)
+    for _ in range(num_meds):
+        medication_data.append({
             'PatientID': row['PatientID'],
             'VisitID': row['VisitID'],
-            'MedicationID': med,
-            'Dosage': f"{np.random.randint(1,4)} times/day",
-            'Quantity': np.random.randint(1,21)
+            'MedicationID': f'Med_{random.randint(1, NUM_MEDICATIONS):03d}',
+            'Dosage': f'{random.randint(1,3)} tablets/day'
         })
-df_medications = pd.DataFrame(medications_data)
+
+# Medications for operations
+for idx, row in df_operations.iterrows():
+    num_meds = random.randint(1,5)
+    for _ in range(num_meds):
+        medication_data.append({
+            'PatientID': row['PatientID'],
+            'OperationID': row['OperationID'],
+            'MedicationID': f'Med_{random.randint(1, NUM_MEDICATIONS):03d}',
+            'Dosage': f'{random.randint(1,3)} tablets/day'
+        })
+
+df_medications = pd.DataFrame(medication_data)
 
 # -----------------------------
-# 8️⃣ Generate Fact_Billing
+# Generate Billing
 # -----------------------------
 billing_data = []
+
+# Billing for visits
 for idx, row in df_visits.iterrows():
-    amount = row['DoctorFee']
-    if row['OperationFlag'] == 1:
-        amount += np.random.randint(5000, 50001)  # operation cost
     billing_data.append({
         'PatientID': row['PatientID'],
         'VisitID': row['VisitID'],
-        'Amount': amount,
-        'PaymentStatus': np.random.choice(['Paid', 'Pending', 'Insurance']),
-        'InsuranceProvider': np.random.choice(['Provider A', 'Provider B', 'Provider C', 'None'])
+        'Amount': row['DoctorVisitFee'] + random.randint(500,5000),
+        'PaymentStatus': random.choice(['Paid','Pending','Insurance'])
     })
+
+# Billing for operations
+for idx, row in df_operations.iterrows():
+    billing_data.append({
+        'PatientID': row['PatientID'],
+        'OperationID': row['OperationID'],
+        'Amount': random.randint(5000,50000),
+        'PaymentStatus': random.choice(['Paid','Pending','Insurance'])
+    })
+
 df_billing = pd.DataFrame(billing_data)
 
 # -----------------------------
-# ✅ Save CSVs
+# Save CSVs
 # -----------------------------
 df_patients.to_csv('Dim_Patient.csv', index=False)
 df_visits.to_csv('Fact_Visits.csv', index=False)
@@ -157,4 +164,4 @@ df_labtests.to_csv('Fact_LabTests.csv', index=False)
 df_medications.to_csv('Fact_Medications.csv', index=False)
 df_billing.to_csv('Fact_Billing.csv', index=False)
 
-print("Data generation completed! CSVs ready for use.")
+print("CSV files generated successfully!")
